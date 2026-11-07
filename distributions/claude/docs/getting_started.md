@@ -24,7 +24,7 @@ emerging patterns and tried to make it easier to get started with fewer steps.
 
 ## Runtime Setup
 
-The EGM skills and personas are packaged as a plugin for **Antigravity**, **Claude Code**, **Claude Cowork**, **OpenAI Codex**, and **ChatGPT Work** (see [Harnesses](harnesses.md) for installation instructions).
+The EGM skills and personas are packaged as a plugin for **Antigravity**, **Claude Code**, **Claude Cowork**, **OpenAI Codex**, **ChatGPT Work**, and **OpenCode V2** (see [Harnesses](harnesses.md) for installation instructions).
 
 1.  **Skills**: The skills in `skills/` can be installed via the plugin/extension
     manifest. This guide shows their commands without a prefix (e.g.

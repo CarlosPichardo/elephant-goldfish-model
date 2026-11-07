@@ -1,200 +1,280 @@
 <!-- Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0 -->
 
-# OpenCode V1 integration (experimental)
+# OpenCode V2 integration (experimental)
 
-This adapter targets OpenCode CLI **1.18.29**, with V1 `task` and `permission` interfaces.
-It does not target V2 `subagent` or `permissions` interfaces.
-Installation checks do not establish workflow or isolation support.
-Maintainer approval, live workflows, and isolation verification remain pending under [#146](https://github.com/google/elephant-goldfish-model/issues/146).
-The proposed architecture is in [the additional harness design](designs/additional-harnesses.md).
+This adapter targets OpenCode **2.x** and the V2 `agents`, `commands`,
+`permissions`, and `subagent` interfaces. It is designed for Linux, macOS, and
+Windows, and verified with OpenCode `2.2.6` on Windows in this workspace. The
+CI native probe targets Linux. It does not target the V1 `task` or `permission`
+interfaces.
+
+Installation checks do not establish workflow or isolation support. Maintainer
+approval, live workflows, and isolation verification remain pending under
+[#146](https://github.com/google/elephant-goldfish-model/issues/146). The
+proposed architecture is in [the additional harness design](https://github.com/google/elephant-goldfish-model/blob/main/docs/designs/additional-harnesses.md).
 
 ## Install
 
-Use Python 3.10+ and a POSIX filesystem with symbolic links.
-Select a fixed candidate commit before installation. Keep the installation at its original path.
-The installer copies the complete canonical resource trees. It does not change global or project configuration.
-It refuses an existing destination. Use a new destination for each candidate.
+Use Python 3.10 or newer. The installer copies the complete canonical resource
+trees and does not need symbolic links, so it works on Windows without Developer
+Mode. It does not change global or project configuration. It refuses an existing
+destination; use a new destination for each candidate.
+
+POSIX shell (Linux and macOS):
 
 ```sh
 git rev-parse HEAD
-python3 adapters/opencode/install.py /absolute/egm-opencode-candidate
+python3 adapters/opencode/install.py /absolute/egm-opencode-v2
 opencode --version
 ```
 
-Require version `1.18.29` before launch. Install that exact version if necessary:
+Windows PowerShell:
 
-```sh
-npm install --prefix /absolute/opencode-v1 opencode-ai@1.18.29
-/absolute/opencode-v1/node_modules/.bin/opencode --version
+```powershell
+git rev-parse HEAD
+python adapters\opencode\install.py "$env:TEMP\egm-opencode-v2"
+opencode --version
 ```
 
-Inspect the generated `opencode.json` and `installation.json` before use.
-The latter records package identity and SHA-256 hashes of all bundled files.
-The native configuration contains seven commands, eight reviewers, and the `egm` primary agent.
-Native skill aliases use the canonical frontmatter names and link to the unchanged skill directories.
+Require OpenCode `2.x` before launch. The installer records the tested host
+version in `installation.json`; newer OpenCode 2.x releases are expected to work,
+but verify the generated configuration before relying on a different release.
 
-Start OpenCode from the project directory with the candidate configuration:
+Inspect the generated `opencode.json` and `installation.json` before use. The
+latter records package identity, platform, Python version, and SHA-256 hashes of
+all bundled files. The native configuration contains seven commands, eight
+reviewers, and the `egm` primary agent. The bundle's `skills/` directory is
+registered directly, so skill IDs are the canonical directory names.
+
+## Run
+
+OpenCode V2 normally connects to a shared background service. That service may
+already be using another configuration, so use `--standalone` with
+`OPENCODE_CONFIG` for an isolated candidate:
+
+POSIX shell:
 
 ```sh
-OPENCODE_CONFIG=/absolute/egm-opencode-candidate/opencode.json opencode --agent egm
+cd /absolute/path/to/project
+OPENCODE_CONFIG=/absolute/egm-opencode-v2/opencode.json opencode --standalone
 ```
 
-Model calls require separate user authorization. Installation and version checks do not require model calls.
-Select `egm` before native skill use. Other primary agents do not receive this adapter's dispatch instructions.
-For review text, use an ordinary message rather than a slash command. For example:
+Windows PowerShell:
+
+```powershell
+cd C:\absolute\path\to\project
+$env:OPENCODE_CONFIG = "$env:TEMP\egm-opencode-v2\opencode.json"
+opencode --standalone
+```
+
+The generated configuration sets `default_agent` to `egm`, so the session opens
+with that agent. For a non-interactive run, use
+`opencode --standalone run --agent egm "..."`.
+
+To use the candidate without `--standalone`, copy its generated `opencode.json`
+into the project as `opencode.json` or `.opencode/opencode.json`. That is an
+explicit project configuration change; keep the absolute bundle paths intact.
+
+Select `egm` before native skill use. Other primary agents do not receive this
+adapter's dispatch instructions. For review text, use an ordinary message rather
+than a slash command. For example:
 
 ```text
 Use the egm-review skill to review /absolute/path/design.md.
 ```
 
-Paste material into that ordinary message, or save it in a file for the agent to read.
-The generated `/egm-brainstorm`, `/egm-draft`, and `/egm-review` commands retain
-OpenCode's native command syntax. Their arguments are not literal text: OpenCode
-evaluates shell markers (an exclamation mark followed by a command in backticks)
-before agent tool permissions apply. Do not paste untrusted review material into
-slash-command arguments. Markdown fences do not disable this preprocessing.
+The generated `/egm-brainstorm`, `/egm-draft`, and `/egm-review` commands use
+OpenCode's native command syntax. Their arguments are not literal text:
+OpenCode evaluates shell markers (an exclamation mark followed by a command in
+backticks) before agent tool permissions apply. Do not paste untrusted review
+material into slash-command arguments. Markdown fences do not disable this
+preprocessing. Paste material into an ordinary message, or save it in a file for
+the agent to read.
 
-To uninstall, stop sessions and remove only this candidate directory. Remove its environment override.
+To uninstall, stop sessions, remove only this candidate directory, and remove
+its `OPENCODE_CONFIG` or copied project configuration.
 
-## Paths and dispatch
+## Verify the installation
 
-Use the absolute bundle root in the generated prompt.
-Resolve `agents/`, `resources/`, and `docs/` against that root.
-Resolve `references/` against the canonical skill directory, after resolving its alias.
-Resolve user files against the project directory. Never substitute project files for bundled personas.
+List the effective configuration and agents with the private server:
 
-Dispatch reviewers directly from `egm` with the V1 `task` tool.
-Set `subagent_type` to the persona's canonical frontmatter name.
-Supply `description` and `prompt`. Omit `task_id` to create a fresh session.
-Use foreground tasks. Do not enable background dispatch or reuse a reviewer session.
-The primary agent performs synthesis and writes reports; no nested synthesizer adapter is installed.
-Bootstrap worker and scout delegation is outside this adapter's scope. Although
-all seven skills are discoverable, the task allowlist contains only the eight
-reviewer types. Stop if bootstrap requires an orchestrator or scout; do not
-substitute a reviewer or simulate the missing worker.
+```sh
+OPENCODE_CONFIG=/absolute/egm-opencode-v2/opencode.json opencode --standalone debug config
+OPENCODE_CONFIG=/absolute/egm-opencode-v2/opencode.json opencode --standalone debug agents
+```
 
-Pass absolute paths for the persona, target, standards, and selected sources.
-Do not pass parent history, private reasoning, or memory.
-Supply prior report paths only when the canonical stage requires them, such as
-`zoom_out_report.md` for Step 8 (Intermediate Zoom Out).
-Read prior reports only when explicitly supplied and required by the canonical stage.
-Do not retrieve unsolicited history, memory, or earlier reviewer findings.
-Require all specified reads and actual task completion before synthesis.
-Report a missing start, completion, required read, or malformed result as incomplete.
-Stop if native delegation is unavailable. Never simulate Goldfish reviewers in the parent conversation.
-
-When brainstorm precedes draft, complete all seven brainstorm reviewers first.
-Synthesize their findings into `concepts_brief.md` before drafting.
-For review, write each completed stage report before starting the next stage.
-Before Step 8, verify `zoom_out_report.md` exists in the artifact directory.
-Pass its absolute path to the reviewer. Stop if the report is missing.
-
-Reviewers deny every tool except `read` and `glob`.
-`grep` is denied because its searches bypass the host's per-file `read` rules,
-including the `.env` exclusions. Use permitted file reads for review context.
-V1 maps MCP resource reads and resource lists to the `read` permission.
-The reviewer `read` rules allow local reads, then deny `mcp:*`.
-This denies `mcp:<server>:<uri>` reads and `mcp:<server>:*` resource or template lists.
-MCP resource tool names can remain visible. Their resource access is denied at the permission check.
-The adapter's external-directory exception covers only the installed bundle.
-OpenCode also adds access to its tool-output directory in the resolved agent configuration.
-Shell commands, edits, network tools, MCP tools, skills, and delegation remain denied.
-The primary agent requests permission for other tools, including writes.
-For an external target, move a fixture into the project or review a narrow permission change separately.
-
-Honor `EGM artifact directory: <path>` in the user's prompt or loaded instructions.
-Resolve a relative output directory against the project directory. Otherwise retain the canonical output filenames and working-directory default.
-Preserve each readiness, section, and stage approval gate. Ask one plain-text question when the native question tool is unavailable.
-Wait for the user's answer. Missing tools and elapsed time do not constitute approval.
-
-## Verification limits
-
-OpenCode merges custom, global, project, and managed configuration.
-Inspect the effective configuration before a run; later settings can override these permissions.
-Use a clean profile and a disposable project for verification.
-Inspect inherited instructions, plugins, MCP services, memory, and shared files separately.
-Read-only tool configuration is not process or filesystem isolation.
-A fresh child session alone does not prove Goldfish isolation.
+`debug agents` should list `egm`, `egm-codebase-details`, `egm-comprehension`,
+`egm-design`, `egm-implementation-readiness`, `egm-inventive-catalyst`,
+`egm-structural`, `egm-style`, and `egm-zoom-out`. It should not list
+OpenCode's built-in general-purpose agent as an EGM reviewer.
 
 Run the offline checks:
 
 ```sh
-pytest tests/unit/test_opencode_adapter.py
-pytest tests/unit
+python -m pytest tests/unit/test_opencode_adapter.py
+python -m pytest tests/unit
 ```
 
-These tests check installation, resource identity, native configuration, and refusal to overwrite files.
-They do not simulate host completion records or prove enforcement by the host.
-No live model test runs in ordinary CI.
+These tests check installation, resource identity, native configuration, path
+normalization, and refusal to overwrite files. They do not simulate host
+completion records or prove enforcement by the host. No live model test runs in
+ordinary CI.
 
-The scoped OpenCode native probe uses a scripted local model, not a live model.
-It checks native child dispatch, one parent marker, and denial of a synthetic
-`.env` read. It requires the pinned OpenCode 1.18.29 Linux x64 executable.
+## Paths and dispatch
+
+Use the absolute bundle root in the generated prompt. Resolve `agents/`,
+`resources/`, and `docs/` against that root. Resolve `references/` against the
+canonical skill directory. Resolve user files against the project directory.
+Never substitute project files for bundled personas.
+
+OpenCode V2's `subagent` tool takes an `agent` ID, a short `description`, and a
+complete `prompt`. Dispatch reviewers directly from `egm`:
+
+- Set `agent` to the registered persona name, such as `egm-zoom-out`.
+- Omit `sessionID` to create a fresh child session. Never resume a reviewer.
+- Do not set `background`; wait for foreground completion.
+- Pass absolute paths for the persona, target, standards, and selected sources.
+- Do not pass parent history, private reasoning, or memory. Supply prior report
+  paths only when the canonical stage requires them, such as
+  `zoom_out_report.md` for Step 8 (Intermediate Zoom Out).
+- Read prior reports only when explicitly supplied and required by the canonical
+  stage. Do not retrieve unsolicited history, memory, or earlier reviewer
+  findings.
+
+OpenCode's default `experimental.subagent_depth` is `1`, so a reviewer cannot
+start another subagent. Do not dispatch the synthesizer; the `egm` primary agent
+performs synthesis and writes reports. The skill's direct-dispatch path applies.
+
+When brainstorm precedes draft, complete all seven brainstorm reviewers first.
+Synthesize their findings into `concepts_brief.md` before drafting. For review,
+write each completed stage report before starting the next stage. Before Step 8,
+verify `zoom_out_report.md` exists in the artifact directory and pass its
+absolute path to the reviewer. Stop if the report is missing.
+
+Bootstrap worker and scout delegation is outside this adapter's scope. Only the
+eight reviewer IDs are permitted as subagents. Run scout steps inline when the
+skill allows it; if bootstrap requires an orchestrator or scout subagent, stop and
+report the limitation. Do not substitute a reviewer or simulate the missing
+worker.
+
+Honor `EGM artifact directory: <path>` in the user's prompt or loaded
+instructions. Resolve a relative output directory against the project directory.
+Otherwise retain the canonical output filenames and working-directory default.
+Preserve each readiness, section, and stage approval gate. Use the `question`
+tool for a single fixed-choice gate; use plain text for open-ended input. Wait
+for the user's answer. Missing tools and elapsed time do not constitute approval.
+
+## Permissions
+
+V2 uses one ordered `permissions` array; the last matching rule wins. The
+adapter appends its rules after OpenCode's base policy.
+
+Reviewers:
+
+- Deny every action first.
+- Allow `read` and `glob`.
+- Deny `grep`, because grep searches bypass per-file read rules, including the
+  `.env` exclusions. Use permitted file reads for review context.
+- Deny `.env` and `.env.*` reads, while allowing `.env.example`.
+- Deny external directories, then allow the installed bundle.
+- The broad deny also closes MCP tools and `opencode_read_mcp_resource` /
+  `opencode_list_mcp_resources`.
+- The `skill` tool can remain visible in the reviewer's tool list, but the
+  `skill` permission denies loading every skill.
+
+The `egm` primary agent:
+
+- Starts from `ask` for unspecified actions, then allows reads, `glob`, `grep`,
+  questions, and the installed bundle.
+- Keeps `.env` reads as `ask`.
+- Allows only the seven canonical EGM skills and the eight reviewer IDs.
+- Asks before writes, shell commands, web access, and other side effects.
+
+V2 allows `external_directory` by default. This adapter restores a prompt for the
+primary agent and a deny for reviewers, with an exception for the installed
+bundle. Reviewers therefore cannot read a target or standard outside the
+project. Move an external fixture into the project, or review a separate,
+narrow permission change; do not widen the reviewer rule for a normal review.
+
+OpenCode merges system, global, project, and managed configuration. Inspect the
+effective configuration before a run; later settings can override these
+permissions. Use a clean profile and a disposable project for verification.
+Inspect inherited instructions, plugins, MCP services, memory, and shared files
+separately. Read-only tool configuration is not process or filesystem isolation.
+A fresh child session alone does not prove Goldfish isolation.
+
+## Verification limits
+
+A passing installation check does not establish live model behavior, full
+workflows, or general reviewer isolation. Before a support claim, explicitly
+authorize and complete these checks:
+
+1. Record the candidate SHA, installed hashes, host version, model identifier,
+   surface, and date.
+2. Run brainstorm, draft, and review with an actual human approval pause.
+3. Retain native reviewer starts, completions, required reads, and produced
+   artifacts.
+4. Probe write and shell denial against disposable files and inspect the
+   effective child permissions.
+5. Place a random marker only in the parent conversation and inspect child
+   context and output.
+6. Report installation, workflow, and isolation outcomes separately. Mark
+   missing evidence as unverified.
+
+The scoped native probe uses a scripted local model, not a live model. It checks
+native child dispatch, one parent marker, an allowed persona read from the
+installed bundle, and denial of a synthetic `.env` read. It requires the pinned
+OpenCode V2 executable in `tests/integration/opencode-ci/`:
 
 ```sh
 npm ci --ignore-scripts --prefix tests/integration/opencode-ci
 python tests/integration/opencode_native_probe.py \
   --source . \
-  --opencode tests/integration/opencode-ci/node_modules/opencode-linux-x64/bin/opencode \
-  --output /tmp/egm-opencode-probe-new
+  --opencode tests/integration/opencode-ci/node_modules/@opencode/cli-linux-x64/bin/opencode \
+  --output /tmp/egm-opencode-v2-probe
 ```
 
-Choose an output path that does not exist. A passing probe does not establish
-live model behavior, full workflows, or general reviewer isolation.
+On Windows, point `--opencode` at the installed `opencode.cmd` or
+`opencode.exe`. Choose an output path that does not exist. A passing probe does
+not establish live model behavior, full workflows, or general reviewer
+isolation.
 
-On 2026-10-24, OpenCode `1.18.29` accepted the generated configuration through `debug config` and `debug agent egm-style`.
-The historical reviewer toolset enabled `read`, `glob`, and `grep`. The current
-candidate denies `grep` to preserve the `.env` read restriction.
-The `debug skill` command discovered all seven skills from the installed candidate paths.
-These commands made no model calls. This result does not prove task execution or runtime permission enforcement.
-Separate XDG directories did not prevent discovery of home-directory skills. A clean verification profile must account for those locations too.
-This historical note does not identify the tested EGM commit or installed bundle
-checksum. Repeat discovery against the pinned candidate before relying on it for
-that candidate.
+## Windows notes
 
-Before a support claim, explicitly authorize and complete these checks:
+- The installer never creates symbolic links. Skill directories are registered
+  directly from the bundle.
+- Generated prompts and permission rules use forward-slash paths. OpenCode
+  normalizes backslashes to slashes and matches paths case-insensitively on
+  Windows.
+- Use `$env:OPENCODE_CONFIG = "..."` for the current PowerShell session, and
+  `Remove-Item Env:OPENCODE_CONFIG` to unset it.
+- `--standalone` avoids using the shared background service and its possibly
+  different configuration. `OPENCODE_CONFIG` alone is not enough when the
+  shared service is already running.
+- Paths with spaces or non-ASCII characters are supported. Paths containing
+  template or glob characters (`* ? [ ] { } ! @ ` $`) and `.env.` are rejected.
 
-1. Record the candidate SHA, installed hashes, host version, model identifier, surface, and date.
-2. Run brainstorm, draft, and review with an actual human approval pause.
-3. Retain native reviewer starts, completions, required reads, and produced artifacts.
-4. Probe write denial against a disposable file and inspect the effective child permissions.
-5. Place a random marker only in the parent conversation and inspect child context and output.
-6. Report installation, workflow, and isolation outcomes separately. Mark missing evidence as unverified.
+## Differences from the V1 adapter
 
-For OpenCode 1.18.29, the offline verifier checks one exported child session
-against its parent JSONL trace. Supply each required absolute POSIX file path:
-
-```sh
-opencode export <child-session-id> > child.json
-python tests/integration/opencode_trace_verifier.py \
-  --parent-trace parent.jsonl --child-export child.json \
-  --require /absolute/path/to/agents/zoom_out.md \
-  --require /absolute/path/to/target.md \
-  --require /absolute/path/to/standard.md
-```
-
-The verifier matches native child and parent session identities, the task
-completion and time window, reviewer type, and each tool call's message and
-session IDs. It requires a new task without `task_id`. It
-requires a nonempty, successful file read for every supplied path before the
-child's final response. It matches that response to the parent task result.
-Missing, conflicting, malformed, or unsupported evidence
-fails. Parent JSONL records are split on literal LF, not Unicode separators.
-This does not verify every required path unless the caller supplies it. It does
-not prove whole-file coverage, transcript authenticity, context isolation, or
-that a running workflow stopped on missing evidence. Do not treat a parent
-summary or an absent marker as sufficient isolation evidence.
+| V1 | V2 |
+| --- | --- |
+| `agent` map | `agents` map |
+| `command` map | `commands` map |
+| `permission` map | ordered `permissions` array |
+| `task` action and tool | `subagent` action and tool |
+| `autoupdate` | `update` |
+| `skills.paths` | `skills` array |
+| `prompt` | `system` |
+| `task_id` | `sessionID` (omit for a fresh child) |
 
 ## Interface sources
 
-Reviewed on 2026-10-24. The versioned sources define this adapter's interface:
+Reviewed on 2026-11-07 against OpenCode `2.2.6`:
 
-- [V1 agent configuration](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/agents.mdx)
-- [V1 config and merge order](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)
-- [V1 skill discovery](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/skills.mdx)
-- [V1 command syntax](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/commands.mdx)
-- [V1 command preprocessing](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/opencode/src/session/prompt.ts)
-- [V1 task implementation](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/opencode/src/tool/task.ts)
-- [V1 permission evaluator](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/opencode/src/permission/index.ts)
-- [V1 MCP resource permission paths](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/opencode/src/session/tools.ts)
-- [Current official agent guide](https://opencode.ai/docs/agents/)
+- [V2 migration guide](https://opencode.ai/docs/migrate-v1/)
+- [V2 agents](https://opencode.ai/docs/agents/)
+- [V2 permissions](https://opencode.ai/docs/permissions/)
+- [V2 skills](https://opencode.ai/docs/skills/)
+- [V2 commands](https://opencode.ai/docs/commands/)
+- [V2 tools](https://opencode.ai/docs/tools/)
+- [V2 configuration](https://opencode.ai/docs/config/)

@@ -6,6 +6,7 @@
 | --- | --- |
 | [Getting started](getting_started.md) and [FAQ](faq.md) | Installation and everyday use. |
 | [Harnesses](harnesses.md), [Claude](claude.md), and [Codex](codex.md) | Host-specific installation and execution. |
+| [OpenCode V2](opencode.md) | Experimental Linux and Windows integration with V2 agents, commands, and permissions. |
 | [Design documents](https://github.com/google/elephant-goldfish-model/blob/main/docs/designs/README.md) | Architecture, workflow rationale, and implementation plans. |
 | [Shared runtime resources](../resources/README.md) | Authoritative execution rules and review standards. |
 | [Testing playbook](https://github.com/google/elephant-goldfish-model/blob/main/TESTING.md) | Commands and evidence requirements. |
@@ -95,6 +96,7 @@ their strengths and weaknesses.
 *   [Getting Started](getting_started.md): Installation and core workflow.
 *   [Codex](codex.md): Plugin installation and native workflow verification.
 *   [Claude Code](claude.md): Plugin resources and isolated reviewers.
+*   [OpenCode V2](opencode.md): Experimental Linux and Windows integration.
 *   [Frequently Asked Questions (FAQ)](faq.md): Common questions and answers.
 *   [Framework Architecture](https://github.com/google/elephant-goldfish-model/blob/main/docs/designs/architecture.md): Detailed component
     design and lifecycle.

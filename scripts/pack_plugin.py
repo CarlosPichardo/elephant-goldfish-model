@@ -16,7 +16,7 @@ SHARED = (
     "skills/*/references/*.json", "agents/*.md", "resources/*.md",
     "resources/document_standards/*.md", "docs/index.md", "docs/getting_started.md",
     "docs/harnesses.md", "docs/claude.md", "docs/codex.md", "docs/faq.md",
-    "docs/privacy.md", "docs/releases.md",
+    "docs/privacy.md", "docs/releases.md", "docs/opencode.md",
     "assets/*.svg", "assets/*.png", "docs/assets/*.svg", "docs/assets/*.png",
 )
 HOST = {
@@ -32,6 +32,7 @@ REQUIRED_SHARED = (
     "plugin.json", "LICENSE", "README.md", "assets/icon.svg",
     "docs/index.md", "docs/getting_started.md", "docs/harnesses.md",
     "docs/claude.md", "docs/codex.md", "docs/faq.md", "docs/privacy.md",
+    "docs/opencode.md",
     "resources/README.md", "resources/execution_instructions.md",
     "skills/egm-bootstrap/references/worker-return.schema.json",
     "skills/egm-bootstrap/references/templates.md",

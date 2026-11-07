@@ -49,6 +49,16 @@ codex plugin marketplace add google/elephant-goldfish-model
 codex plugin add egm@egm
 ```
 
+### OpenCode V2
+
+```sh
+python3 adapters/opencode/install.py /absolute/egm-opencode-v2
+```
+
+On Windows, use `python adapters\opencode\install.py "$env:TEMP\egm-opencode-v2"`.
+See the [OpenCode integration](docs/opencode.md) for the isolated launch
+command, V2 permissions, and Windows notes.
+
 Start a new session after installation. For **Claude Cowork** and **ChatGPT Work**, see the [setup guide](docs/harnesses.md).
 
 ## Try your first design

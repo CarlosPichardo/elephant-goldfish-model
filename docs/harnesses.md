@@ -20,6 +20,7 @@ text.
 | ChatGPT workspace import | Admin > Plugins > Add > Import marketplace, repo URL `https://github.com/google/elephant-goldfish-model`, path `.agents/plugins`; cloud review limits still apply |
 | omp | `omp plugin marketplace add google/elephant-goldfish-model && omp plugin install egm@egm` |
 | Muse | `git clone https://github.com/google/elephant-goldfish-model.git && muse plugins install ./elephant-goldfish-model --scope user && muse plugins approve egm` |
+| OpenCode V2 | `python adapters/opencode/install.py <new-directory>`; see [OpenCode integration](opencode.md) |
 
 Install the whole plugin. Skill-only installers that copy `skills/` alone
 break EGM, because the skills read `agents/` and
@@ -73,6 +74,7 @@ while `agents/` contains reviewer personas. All hosts share the same `skills/`,
 | ChatGPT | `plugin.json`, `.codex-plugin/plugin.json`; `.agents/plugins/marketplace.json` for workspace import | `skills` path | Detect native tools in the current session; general-purpose agent reads the persona |
 | omp | `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (Claude-compatible fallback) | `skills/` (default) | Personas from `agents/`/`.claude-plugin/agents/` register as native `task` agents |
 | Muse | `.claude-plugin/plugin.json` (Claude-compatible fallback) | `skills/` (default) | 10 adapters import as agents; tool projections unsupported |
+| OpenCode V2 | `adapters/opencode/install.py` generates `opencode.json` | `skills/` directly | `agents/` registered as named subagents |
 
 Persona prompts live in `agents/`, the directory Antigravity
 scans for subagents. Each persona has `name` and `description` frontmatter, so
@@ -99,6 +101,7 @@ phrase to its own tool:
 | ChatGPT | Native spawn/wait tools when exposed by the current Work session | No | Detect at runtime; direct dispatch fallback |
 | omp | `task` tool | Yes | Yes |
 | Muse | Native subagents; inspect the available schema | Named spawn rejected in 1.4.14; general-purpose fallback verified | Detect at runtime; direct dispatch fallback |
+| OpenCode V2 | `subagent` tool | Yes | Default depth 1; direct dispatch only |
 
 Where a harness has no named persona, the skill spawns a general-purpose
 subagent and tells it to read `agents/<file>.md` first. If a harness cannot
@@ -115,6 +118,32 @@ files. Codex's `fork_context: false` and `fork_turns: "none"` isolate parent
 turns; they do not establish that project or user instructions are excluded.
 Keep stable workspace conventions in instruction files. State review
 assumptions that the Goldfish must challenge as explicit review criteria.
+
+## Reviewer Tools
+
+The Goldfish reviewer personas tell the reviewer not to modify the
+workspace. Some hosts also limit the reviewer's tools. On prompt-only hosts, no
+tool limit from EGM applies, so a reviewer can use whatever tools the session
+allows.
+
+| Harness | Reviewer read-only |
+| --- | --- |
+| Antigravity | Prompt only: the shared personas in `agents/` set no `tools` list |
+| Claude Code | Host-enforced: reviewer adapters allow only `Read`, `Grep`, and `Glob` (see [reviewer isolation](claude.md#reviewer-isolation)) |
+| Claude Cowork | Unverified: Cowork uses the same adapters, but their tool limits are not verified there (see [Claude Cowork](claude.md#claude-cowork)) |
+| Codex | Prompt only: a general-purpose subagent reads the persona |
+| ChatGPT | Prompt only: a general-purpose agent reads the persona |
+| omp | Unverified: the personas register as native `task` agents, but whether omp limits their tools the way the Claude adapters do is unverified ([#186](https://github.com/google/elephant-goldfish-model/issues/186)) |
+| Muse | Prompt only: agent tool projections are unsupported (see the [Muse guide](https://github.com/google/elephant-goldfish-model/blob/main/docs/muse.md#fresh-context-reviewers)) |
+| OpenCode V2 | Host-enforced by the generated `permissions`: reviewers deny every action, then allow `read` and `glob`; `grep`, writes, shell, and subagents stay denied |
+
+For the hosts above, no test records a reviewer write being denied.
+Host-enforced means the adapter's rules leave out write and shell tools or deny
+them, not that a run has shown a write refused. The experimental Cursor, GitHub
+Copilot, and OpenCode adapters set their own reviewer permissions; see the
+[Cursor](https://github.com/google/elephant-goldfish-model/blob/main/docs/cursor.md),
+[Copilot](https://github.com/google/elephant-goldfish-model/blob/main/docs/copilot.md),
+and [OpenCode](opencode.md) guides.
 
 ## Artifact Directory
 
@@ -159,6 +188,8 @@ control is verified here for Codex or Antigravity.
 **omp** ([#186](https://github.com/google/elephant-goldfish-model/issues/186)) has a working installation path. Skills are invoked as `/skill:egm-<command>` (omp registers one command per skill; it has no `/egm-*` namespace). Community-verified on omp v18.12.6: all seven skills discover and resolve, and all nine reviewer personas register as subagents. End-to-end workflow fixtures are not yet automated for omp.
 
 **Muse** (1.4.14) has a working installation path. `muse plugins validate` reports the plugin valid with all seven skills and all ten agent adapters supported; every agent tool projection is unsupported, so Claude tool allowlists do not restrict Muse reviewers. Install from a local path; `marketplace add` on this repository discovers zero plugins because Muse reads the Codex catalog first. End-to-end workflow fixtures passed on 2026-10-30 (brainstorm, draft, and uninterrupted review with 15 fresh-context reviewers); named `egm/egm-*` agents cannot be spawned in this runtime, so reviewers used the general-purpose fallback reading the installed persona first. See the [Muse guide](https://github.com/google/elephant-goldfish-model/blob/main/docs/muse.md). No skill routes a Muse session to that guide yet ([#252](https://github.com/google/elephant-goldfish-model/issues/252)), so point the session at it.
+
+**OpenCode V2** ([#146](https://github.com/google/elephant-goldfish-model/issues/146)) has an experimental installer that generates a private `opencode.json` with V2 `agents`, `commands`, ordered `permissions`, and named `subagent` dispatch. It is designed for Linux, macOS, and Windows, was verified with OpenCode 2.2.6 on Windows, and does not require symbolic links. The Linux native probe is configured in CI. Installation and offline configuration checks pass; end-to-end workflow and reviewer-isolation fixtures are not yet automated. Use `--standalone` with `OPENCODE_CONFIG` so the shared background service does not supply a different configuration. See the [OpenCode integration](opencode.md).
 
 See the [harness test record](https://github.com/google/elephant-goldfish-model/blob/main/TESTING.md#harness-test-record) for tested surfaces and limits.
 

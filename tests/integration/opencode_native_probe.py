@@ -1,7 +1,7 @@
 # Copyright 2026 Google LLC.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exercise native OpenCode delegation with a scripted local model.
+"""Exercise native OpenCode V2 delegation with a scripted local model.
 
 This checks transport and permission behavior, not model compliance or full
 workflow execution. The only data sent to the mock is synthetic fixture data.
@@ -12,7 +12,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
+import sys
 import tempfile
 import threading
 from typing import Any
@@ -24,6 +26,7 @@ REQUESTS: list[dict[str, Any]] = []
 
 class MockProvider(BaseHTTPRequestHandler):
     fixture = ''
+    persona = ''
 
     def log_message(self, _format: str, *_args: object) -> None:
         pass
@@ -39,18 +42,21 @@ class MockProvider(BaseHTTPRequestHandler):
         )
         delta = {'role': 'assistant', 'content': 'SCRIPTED_COMPLETION'}
         finish = 'stop'
-        if not has_result and 'task' in tools:
+        if not has_result and 'subagent' in tools:
             delta = self.call(
-                'task',
+                'subagent',
                 {
                     'description': 'Probe child isolation',
-                    'subagent_type': 'egm-zoom-out',
+                    'agent': 'egm-zoom-out',
                     'prompt': 'Read the synthetic fixture .env file.',
                 },
             )
             finish = 'tool_calls'
         elif not has_result and 'read' in tools:
-            delta = self.call('read', {'filePath': self.fixture})
+            delta = self.call_many([
+                ('read', {'path': self.persona}),
+                ('read', {'path': self.fixture}),
+            ])
             finish = 'tool_calls'
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
@@ -74,18 +80,23 @@ class MockProvider(BaseHTTPRequestHandler):
 
     @staticmethod
     def call(name: str, arguments: dict[str, str]) -> dict[str, Any]:
+        return MockProvider.call_many([(name, arguments)])
+
+    @staticmethod
+    def call_many(calls: list[tuple[str, dict[str, str]]]) -> dict[str, Any]:
         return {
             'role': 'assistant',
             'tool_calls': [
                 {
-                    'index': 0,
-                    'id': 'fixture-call',
+                    'index': index,
+                    'id': f'fixture-call-{index}',
                     'type': 'function',
                     'function': {
                         'name': name,
                         'arguments': json.dumps(arguments),
                     },
                 }
+                for index, (name, arguments) in enumerate(calls)
             ],
         }
 
@@ -95,20 +106,27 @@ def main() -> None:
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--opencode', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument(
+        '--allow-dirty', action='store_true',
+        help='Do not require a clean source tree (local development only)',
+    )
     args = parser.parse_args()
     source, binary = args.source.resolve(), args.opencode.resolve()
     version = subprocess.check_output(
         [str(binary), '--version'], text=True
     ).strip()
-    assert version == '1.18.29', f'Unexpected OpenCode version: {version}'
+    match = re.search(r'(\d+\.\d+\.\d+)', version)
+    assert match and match.group(1).startswith('2.'), f'Unexpected OpenCode version: {version}'
+    version = match.group(1)
     sha = subprocess.check_output(
         ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True
     ).strip()
-    status = subprocess.check_output(
-        ['git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all'],
-        text=True,
-    )
-    assert not status, 'Source contains staged, unstaged, or untracked changes'
+    if not args.allow_dirty:
+        status = subprocess.check_output(
+            ['git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all'],
+            text=True,
+        )
+        assert not status, 'Source contains staged, unstaged, or untracked changes'
     args.output.mkdir(parents=True, exist_ok=False)
     server = ThreadingHTTPServer(('127.0.0.1', 0), MockProvider)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -116,18 +134,16 @@ def main() -> None:
     try:
         with tempfile.TemporaryDirectory(prefix='egm-native-probe-') as root:
             root = Path(root)
-            project, home, install = (
-                root / 'project',
-                root / 'home',
-                root / 'install',
-            )
+            project, install = root / 'project', root / 'install'
+            home, config_home = root / 'home', root / 'config'
             project.mkdir()
             home.mkdir()
+            config_home.mkdir()
             (project / '.env').write_text(SECRET + '\n')
             MockProvider.fixture = str(project / '.env')
             subprocess.run(
                 [
-                    'python3',
+                    sys.executable,
                     str(source / 'adapters/opencode/install.py'),
                     str(install),
                 ],
@@ -135,32 +151,41 @@ def main() -> None:
                 stdout=subprocess.DEVNULL,
                 timeout=60,
             )
+            MockProvider.persona = str(install / 'bundle/agents/zoom_out.md')
             config = json.loads((install / 'opencode.json').read_text())
-            config['provider'] = {
+            config['providers'] = {
                 'fixture': {
-                    'npm': '@ai-sdk/openai-compatible',
-                    'name': 'fixture',
-                    'options': {
+                    'package': '@opencode/ai/providers/openai-compatible',
+                    'settings': {
                         'baseURL': f'http://127.0.0.1:{server.server_port}/v1',
                         'apiKey': 'fixture',
                     },
-                    'models': {'fixture': {'name': 'fixture'}},
+                    'models': {'fixture': {'capabilities': {'tools': True}}},
                 }
             }
             config['model'] = 'fixture/fixture'
             config_path = root / 'config.json'
             config_path.write_text(json.dumps(config))
-            env = {
-                'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
-                'HOME': str(home),
-                'XDG_CONFIG_HOME': str(home / 'config'),
+            env = dict(os.environ)
+            env.update({
+                'XDG_CONFIG_HOME': str(config_home),
                 'XDG_DATA_HOME': str(home / 'data'),
                 'XDG_CACHE_HOME': str(home / 'cache'),
                 'OPENCODE_CONFIG': str(config_path),
-            }
+                'OPENCODE_CONFIG_DIR': str(config_home),
+                'OPENCODE_DISABLE_AUTOUPDATE': '1',
+            })
+            if os.name != 'nt':
+                env.update({
+                    'HOME': str(home),
+                    'XDG_CONFIG_HOME': str(config_home),
+                    'XDG_DATA_HOME': str(home / 'data'),
+                    'XDG_CACHE_HOME': str(home / 'cache'),
+                })
             result = subprocess.run(
                 [
                     str(binary),
+                    '--standalone',
                     'run',
                     '--format',
                     'json',
@@ -186,28 +211,34 @@ def main() -> None:
                 for line in result.stdout.splitlines()
                 if line.strip()
             ]
-            tasks = [
+            subagents = [
                 e
                 for e in trace
                 if e.get('type') == 'tool_use'
-                and e['part'].get('tool') == 'task'
+                and e['part'].get('tool') == 'subagent'
             ]
             assert (
-                len(tasks) == 1
-                and tasks[0]['part']['state']['status'] == 'completed'
-            ), 'No completed native task'
-            task = tasks[0]['part']['state']
+                len(subagents) == 1
+                and subagents[0]['part']['state']['status'] == 'completed'
+            ), 'No completed native subagent'
+            subagent = subagents[0]['part']['state']
             assert MARKER not in json.dumps(
-                task['input']
+                subagent['input']
             ), 'Parent marker passed to child'
-            assert (
-                task['metadata']['sessionId']
-                != task['metadata']['parentSessionId']
-            ), 'Child reused parent session'
+            parent_session = next(
+                event['sessionID'] for event in trace if event.get('sessionID')
+            )
+            child_session = subagent['metadata']['metadata']['sessionID']
+            assert child_session and child_session != parent_session, (
+                'Child reused the parent session'
+            )
+            assert child_session in subagent['metadata']['content'][0]['text'], (
+                'Native child result does not name the child session'
+            )
             parent_requests = [
                 r
                 for r in REQUESTS
-                if 'task'
+                if 'subagent'
                 in {t['function']['name'] for t in r.get('tools', [])}
             ]
             assert any(
@@ -218,21 +249,23 @@ def main() -> None:
                 for r in REQUESTS
                 if 'read'
                 in {t['function']['name'] for t in r.get('tools', [])}
-                and 'task'
+                and 'subagent'
                 not in {t['function']['name'] for t in r.get('tools', [])}
             ]
             assert children, 'No native child provider request observed'
             assert all(
-                task['input']['prompt'] in json.dumps(r) for r in children
-            ), 'Child request does not match task prompt'
+                subagent['input']['prompt'] in json.dumps(r) for r in children
+            ), 'Child request does not match subagent prompt'
             assert all(
                 MARKER not in json.dumps(r) for r in children
             ), 'Parent marker reached child'
-            assert all(
-                {t['function']['name'] for t in r['tools']}
-                == {'read', 'glob'}
-                for r in children
-            ), 'Unexpected child tools'
+            child_tools = sorted(
+                {t['function']['name'] for t in children[0]['tools']}
+            )
+            assert {'read', 'glob'} <= set(child_tools), f'Missing reviewer tools: {child_tools}'
+            assert not {'edit', 'write', 'shell', 'subagent'} & set(child_tools), (
+                f'Unexpected child tools: {child_tools}'
+            )
             results = [
                 json.dumps(m.get('content'))
                 for r in children
@@ -242,11 +275,11 @@ def main() -> None:
             assert results, 'No child tool result observed'
             observations = {
                 'parent_marker_seen_in_parent': True,
-                'native_task_input': task['input'],
-                'native_task_metadata': task['metadata'],
-                'child_tools': sorted(
-                    {t['function']['name'] for t in children[0]['tools']}
-                ),
+                'native_subagent_input': subagent['input'],
+                'native_subagent_metadata': subagent.get('metadata', {}),
+                'child_session': child_session,
+                'parent_session': parent_session,
+                'child_tools': child_tools,
                 'child_marker_present': any(
                     MARKER in json.dumps(r) for r in children
                 ),
@@ -259,7 +292,10 @@ def main() -> None:
                 SECRET not in r for r in results
             ), 'Synthetic secret reached child'
             assert any(
-                'prevents you from using this specific tool call' in r
+                'Strict Read-Only Protocol' in r for r in results
+            ), 'Reviewer persona read was not allowed'
+            assert any(
+                'permission' in r.lower() or 'denied' in r.lower() or 'deny' in r.lower()
                 for r in results
             ), 'No native denial result'
             summary = {
@@ -267,7 +303,7 @@ def main() -> None:
                 'opencode_version': version,
                 'model': 'scripted local mock',
                 'native_child_completed': True,
-                'child_tools': ['glob', 'read'],
+                'child_tools': child_tools,
                 'parent_marker_seen_in_parent': True,
                 'parent_marker_in_child': False,
                 'fixture_env_read': 'denied',

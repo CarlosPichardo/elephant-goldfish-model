@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "opencode-linux-x64": "1.18.29"
+    "@opencode/cli-linux-x64": "2.2.6"
   }
 }

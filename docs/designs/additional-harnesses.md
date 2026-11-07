@@ -99,7 +99,7 @@ fixture's advance approval does not verify an interactive pause.
 | Host | Proposed mechanism | Required evidence |
 | --- | --- | --- |
 | Cursor local Agent | Native plugin package and custom subagents using the host's read-only setting. Reuse shared persona files through thin adapter prompts. | Verify installed resource paths, enforcement of read-only permissions, host completion records, and what context the child receives. |
-| OpenCode CLI | OpenCode 1.18.29 V1 configuration with native commands, skill aliases, and restrictive JSON agent definitions. Install the complete EGM tree before exposing entry skills. | Verify `task` dispatch, `permission` enforcement, isolated child sessions, and package-relative reads. |
+| OpenCode CLI | OpenCode 2.x V2 configuration with native commands and restrictive ordered `permissions`. Register the bundle's `skills/` directory directly and install the complete EGM tree before exposing entry skills. | Verify `subagent` dispatch, `permissions` enforcement, isolated child sessions, and package-relative reads on Linux and Windows. |
 | GitHub Copilot CLI | Native plugin installation and custom agent profiles with an explicit tool allowlist. Leave repository-instruction inclusion disabled for reviewers. | Verify the installed package layout, child context, shared persona reads, tool denial, and reliable result collection. |
 
 Confirm native plugin manifests and paths against the selected host version.
@@ -112,15 +112,18 @@ and `.cursor-plugin/rules/`. Each reviewer declares `readonly: true` and
 register read-only permissions. Offline discovery found seven skills, seven
 reviewers, and one active routing rule. Native enforcement remains unverified.
 
-The OpenCode implementation targets version 1.18.29 and the V1 interface.
-It generates a separate `opencode.json` with `agent`, `command`, and
-`skills.paths` entries. Reviewers use `mode: subagent` and `permission` rules
-that permit local `read`, `glob`, and `grep` operations. MCP resource reads
-must be denied explicitly because V1 maps those tools to `read` permissions.
-The primary agent uses
-`task` with a registered `subagent_type` and omits `task_id` for fresh reviews.
-The native CLI accepted this configuration and discovered the seven installed
-skills offline. Runtime enforcement and context isolation remain unverified.
+The OpenCode implementation targets OpenCode 2.x and the V2 interface. It
+generates a separate `opencode.json` with `agents`, `commands`, an ordered
+`permissions` array, and a `skills` list that points at the bundle's `skills/`
+directory. Reviewers use `mode: subagent` and rules that deny every action and
+then permit local `read` and `glob`; `grep` stays denied because it bypasses
+per-file read rules. V2 exposes MCP resource actions separately, so the broad
+deny closes them without V1's `mcp:*` read rule. The primary agent uses the
+`subagent` tool with a registered `agent` ID, omits `sessionID` for fresh
+reviews, and does not set `background`. The adapter needs no symbolic links, so the same installer runs on Linux and
+Windows. The native CLI accepted this configuration on Windows, and
+`debug agents` listed the nine agents. The Linux CI probe runs the same checks.
+Runtime enforcement and context isolation remain unverified.
 Do not combine this mapping with V2 `subagent` or `permissions` interfaces.
 
 The Copilot CLI candidate targets version 1.0.82 and the root Agent Plugins 1.0
@@ -236,7 +239,7 @@ a release requires regenerated packages and validation of the exact candidate.
 
 - Maintainers must approve or revise the three inquiries.
 - Confirm maintainers can support the validation and ongoing host-version testing.
-- Complete review of the selected OpenCode V1 mapping and the other host mappings.
+- Complete review of the selected OpenCode V2 mapping and the other host mappings.
 - The full EGM review pipeline and live host tests have not been run for this proposal.
   This document is not implementation-ready until those decisions and review findings
   are resolved.
@@ -247,7 +250,7 @@ Reviewed 2026-10-24. These are capability references, not EGM test evidence.
 
 - [Cursor subagents](https://cursor.com/docs/subagents)
 - [OpenCode agents](https://opencode.ai/docs/agents/)
-- [OpenCode V2 agents](https://dev.opencode.ai/v2/docs/agents/)
+- [OpenCode permissions](https://opencode.ai/docs/permissions/)
 - [Copilot CLI custom agents](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli)
 - [Superpowers integrations](https://github.com/obra/superpowers)
 - [Vercel Skills installation ecosystem](https://github.com/vercel-labs/skills)

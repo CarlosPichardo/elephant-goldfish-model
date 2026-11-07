@@ -54,5 +54,5 @@ jobs:
         run: >-
           python tests/integration/opencode_native_probe.py
           --source .
-          --opencode tests/integration/opencode-ci/node_modules/opencode-linux-x64/bin/opencode
+          --opencode tests/integration/opencode-ci/node_modules/@opencode/cli-linux-x64/bin/opencode
           --output "$PROBE_OUTPUT"
